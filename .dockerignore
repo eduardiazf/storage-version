@@ -1,0 +1,11 @@
+*
+!Dockerfile
+!package.json
+!package-lock.json
+!index.js
+!lib/
+!lib/**
+!bin/
+!bin/**
+!test/
+!test/**

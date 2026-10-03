@@ -1,0 +1,11 @@
+name: Build and check storage
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build from source and test downloads
+        run: docker build -t storage-api:${{ github.sha }} .
+      - name: Check runtime without S3 access
+        run: python3 contrib/check-image.py storage-api:${{ github.sha }}

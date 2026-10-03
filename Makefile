@@ -1,11 +1,7 @@
-REPORTER=spec
-
 test:
-	@NODE_ENV=test ./node_modules/.bin/mocha --recursive -R $(REPORTER)
+	npm test
 
 test-watch:
-	@NODE_ENV=test ./node_modules/.bin/mocha \
-		--recursive -R $(REPORTER) \
-		--watch
+	node --test --watch test/*.test.js
 
 .PHONY: test test-watch
