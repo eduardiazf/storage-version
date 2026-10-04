@@ -24,7 +24,8 @@ replaces obsolete filesystem tests/helpers, and compiles a new image from source
 The recovered lib/storage.js SHA-256 was
 `ec30921840c6287a6d32cb2895935b96b6b65fe41a68a12c81f90e50c6e57607`.
 
-Credentials formerly loaded from config.json are now runtime AWS variables.
+Credentials formerly loaded from config.json now use the AWS SDK's default
+credential provider chain, including EC2 instance roles and optional runtime ENV.
 Neither config.json, .env, Git metadata nor credentials enter the image. The
 [SDK v3 streaming API](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/migrate-s3.html)
 replaces the retired v2 dependency. Missing objects return 404; S3 rejections
@@ -57,22 +58,31 @@ Import `.env.example` as runtime-only variables (Available at Buildtime off):
 NODE_ENV=production
 PORT=8000
 AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=REPLACE_WITH_VALID_S3_ACCESS_KEY
-AWS_SECRET_ACCESS_KEY=REPLACE_WITH_VALID_S3_SECRET_KEY
 S3_BUCKET=lotoideal-storage-version
 ```
 
-Mark AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY sensitive. For temporary
-credentials also supply AWS_SESSION_TOKEN. These credentials read S3 objects;
-builds and CI do not access AWS/ECR or Kubernetes. Startup requires the two key
-variables but does not validate their permissions. `/health` checks HTTP liveness
-without querying S3. CLI --port/--storage are replaced by PORT and S3_BUCKET.
+For Coolify on EC2, attach an instance profile with `s3:GetObject` limited to the
+objects this service must serve. Leave AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+and AWS_SESSION_TOKEN unset; the SDK obtains and refreshes temporary credentials.
+The container must be able to reach IMDSv2. Keep tokens required; Docker bridge
+networking can require a metadata response hop limit of 2. An instance role can
+also be accessed by other processes/containers with metadata access, so it is
+not a per-container identity. Restrict its permissions to the downloadable files.
+See [AWS role credentials](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/loading-node-credentials-iam.html).
 
-**Current cutover blocker (2026-10-03):** the embedded source credential returns
-`InvalidAccessKeyId` (HTTP 403). The existing Kubernetes download linked by
-webadmin returns HTTP 500. Supply a valid credential with s3:GetObject on the
-required bucket paths and revalidate the APK; no bucket or IAM permissions have
-been changed. A healthy container alone does not resolve this source failure.
+Explicit runtime AWS credentials remain supported by the SDK for other hosting
+environments. Mark them sensitive; never make them available at build time.
+Remove obsolete or invalid ENV credentials before using the instance role,
+because ENV credentials take precedence in the provider chain.
+
+Startup and `/health` check HTTP liveness without querying S3 or requiring static
+keys. Verify permissions by downloading a known object and comparing its checksum
+before routing users to this service. Builds and CI do not access AWS/ECR or
+Kubernetes. CLI --port/--storage are replaced by PORT and S3_BUCKET.
+
+**Historical source failure (2026-10-03):** the credential embedded in the old
+Kubernetes image returned `InvalidAccessKeyId`. Do not copy that config/credential
+to Coolify; the destination uses its own least-privilege role.
 
 ## Validation
 
@@ -86,7 +96,8 @@ python3 contrib/check-image.py storage-api:coolify
 Node's test runner exercises HTTP with an injected local S3 stub: binary download,
 key/filename mapping, ignored version, default object name, missing/denied objects,
 interrupted streams, malformed filenames, and absence of uploads/version listing.
-The image check verifies credential guards, non-root startup and health in a
-network-none container with synthetic credentials. It checks that config/secret
+The startup test and image check verify startup without static credentials,
+port validation, non-root startup and health without any S3 access. The image
+check runs in a network-none container and checks that config/secret
 files are absent. CI builds this image and runs both checks; it does not deploy.
-Live S3 download/checksum validation remains pending a working credential.
+Live S3 download/checksum validation must also pass with the deployed role.
